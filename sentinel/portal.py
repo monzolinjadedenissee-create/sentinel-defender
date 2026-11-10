@@ -19,6 +19,7 @@ from .security import caller_ip
 # One "real" customer plus a second account; every other guess fails — which is
 # exactly what a brute-force run looks like to the engine.
 DEMO_ACCOUNTS = {
+    "jayray": "Summer",
     "j.castillo": "Summer2024!",
     "m.reyes": "Aurora#7road",
 }
