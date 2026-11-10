@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en" data-theme="night">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ brand }} · Your accounts</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="{{ url_for('static', filename='portal.css') }}">
+</head>
+<body>
+  <div class="demobar">🔒 <b>DEMO ENVIRONMENT</b> — fictional data for Sentinel testing. Nothing here is real.</div>
+
+  <header class="appbar">
+    <div class="logo" style="margin:0">
+      <div class="orb">A</div><div class="name">{{ brand }}</div>
+    </div>
+    <div class="who">
+      <div class="avatar">{{ user[0]|upper }}</div>
+      <span>{{ user }}</span>
+      <a class="logout" href="{{ url_for('portal.logout') }}">Sign out</a>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <h1 class="hello">Good to see you, {{ user }}.
+      <small>Here's where your money stands today.</small>
+    </h1>
+
+    <div class="balance">
+      <div class="k">Primary Checking · available balance</div>
+      <div class="v">$ 18,442.09</div>
+      <div class="card-no">•••• •••• •••• 4471</div>
+    </div>
+
+    <div class="cards3">
+      <div class="mini"><div class="k">Savings</div><div class="v pos">$ 52,310.77</div></div>
+      <div class="mini"><div class="k">Credit card</div><div class="v neg">− $ 1,204.50</div></div>
+      <div class="mini"><div class="k">Rewards points</div><div class="v">8,920</div></div>
+    </div>
+
+    <div class="section">
+      <h3>Recent activity</h3>
+      <div class="tx">
+        <div class="line"><div class="ic">☕</div><div class="desc">Blue Harbor Coffee<small>Today · Dining</small></div><div class="amt">− $ 6.40</div></div>
+        <div class="line"><div class="ic">💳</div><div class="desc">Payroll deposit<small>Yesterday · Income</small></div><div class="amt pos">+ $ 3,250.00</div></div>
+        <div class="line"><div class="ic">🛒</div><div class="desc">Northgate Market<small>2 days ago · Groceries</small></div><div class="amt">− $ 84.22</div></div>
+        <div class="line"><div class="ic">⚡</div><div class="desc">Aurora Power & Light<small>3 days ago · Utilities</small></div><div class="amt">− $ 119.07</div></div>
+        <div class="line"><div class="ic">📈</div><div class="desc">Transfer to Savings<small>5 days ago · Internal</small></div><div class="amt">− $ 500.00</div></div>
+      </div>
+    </div>
+
+    <p class="note">
+      This is a simulated account page for the Sentinel brute-force lab.<br>
+      Attack attempts against this site appear live in the Sentinel console.
+    </p>
+  </main>
+</body>
+</html>

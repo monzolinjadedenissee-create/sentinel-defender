@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en" data-theme="night">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sentinel · Sign in</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="{{ url_for('static', filename='sentinel.css') }}">
+</head>
+<body>
+  <div class="gatewall">
+    <form class="keycard" method="post" action="{{ url_for('sentinel.login_submit') }}">
+      <div class="mark"><span class="glyph">S</span></div>
+      <h1>Sentinel</h1>
+      <p class="muted">Brute-force defense console</p>
+
+      {% if error %}<p class="keyerr">{{ error }}</p>{% endif %}
+
+      <input name="username" type="text" placeholder="Username" autocomplete="username"
+             spellcheck="false" autofocus required>
+      <input name="password" type="password" placeholder="Password" autocomplete="current-password" required>
+      <button type="submit" class="btn primary">Sign in</button>
+    </form>
+  </div>
+</body>
+</html>

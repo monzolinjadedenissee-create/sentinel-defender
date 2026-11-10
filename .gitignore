@@ -1,0 +1,16 @@
+# Local database & secrets
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.local
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Vercel
+.vercel
+geo/

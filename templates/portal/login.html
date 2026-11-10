@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en" data-theme="night">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ brand }} · Online Banking</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="{{ url_for('static', filename='portal.css') }}">
+</head>
+<body>
+  
+  <div class="auth">
+    <section class="pitch">
+      <div class="logo">
+        <div class="orb">A</div>
+        <div class="name">{{ brand }}</div>
+      </div>
+      <h1>Banking that stays <span>a step ahead.</span></h1>
+      <p>Sign in to manage your accounts, move money, and track every transaction in real time — protected around the clock.</p>
+      <div class="trust">
+        <span><span class="dot"></span> 256-bit encryption</span>
+        <span><span class="dot"></span> 24/7 fraud monitoring</span>
+        <span><span class="dot"></span> FDIC-style demo cover</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <form class="signin" method="post" action="{{ url_for('portal.login_submit') }}">
+        <h2>Welcome back</h2>
+        <p class="sub">Sign in to {{ brand }} online banking</p>
+
+        {% if error %}
+        <div class="alert {{ 'lock' if locked else '' }}">
+          <span>{{ '⏳' if locked else '⚠️' }}</span><span>{{ error }}</span>
+        </div>
+        {% endif %}
+
+        <div class="field">
+          <label for="u">Username</label>
+          <input id="u" name="username" type="text" autocomplete="username"
+                 spellcheck="false" autofocus required placeholder="e.g. j.castillo">
+        </div>
+        <div class="field">
+          <label for="p">Password</label>
+          <input id="p" name="password" type="password" autocomplete="current-password"
+                 required placeholder="Your password">
+        </div>
+        <input type="hidden" name="client" id="clientfield">
+        <button type="submit">Sign in securely</button>
+
+        <div class="hint">
+          <div class="row-between"><span>Login to use the bank, for safety make sure credentials is correct</span><span></span></div>
+          Username <code>j.castillo</code> · Password <code>Summer2024!</code><br>
+          Every wrong guess is reported to the Sentinel console — hammer it and watch
+          your IP get blocked and the account get locked.
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <script>
+    // Volunteer non-identifying device details so the Sentinel console can show
+    // what an attacker is using. No tracking, no cookies — just the browser basics.
+    (function () {
+      try {
+        var ua = navigator.userAgentData || {};
+        var nav = navigator;
+        var c = {
+          platform: (ua.platform || nav.platform || "").toString().slice(0, 40),
+          mobile: ua.mobile === true ? "yes" : (/(Mobi|Android|iPhone)/i.test(nav.userAgent) ? "yes" : "no"),
+          browser: (ua.brands && ua.brands.map(function (b) { return b.brand; })
+                      .filter(function (b) { return !/Not.?A.?Brand/i.test(b); })[0]) || "",
+          language: (nav.language || ""),
+          tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || ""),
+          screen: (window.screen ? screen.width + "x" + screen.height : "")
+        };
+        document.getElementById("clientfield").value = JSON.stringify(c);
+      } catch (e) {}
+    })();
+  </script>
+</body>
+</html>

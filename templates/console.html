@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en" data-theme="night">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sentinel · Defense Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='sentinel.css') }}">
+</head>
+<body>
+  <div id="shell" class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="glyph">S</span>
+        <div>
+          <strong>Sentinel</strong>
+          <span class="tag" id="storagetag">—</span>
+        </div>
+      </div>
+      <nav class="tabs" id="tabs">
+        <button class="tab active" data-tab="overview">Overview</button>
+        <button class="tab" data-tab="feed">Live feed</button>
+        <button class="tab" data-tab="map">Attack map</button>
+        <button class="tab" data-tab="blocks">Blocks</button>
+        <button class="tab" data-tab="locks">Locks</button>
+        <button class="tab" data-tab="trusted">Trusted</button>
+        <button class="tab" data-tab="policy">Policy</button>
+      </nav>
+      <div class="topactions">
+        <span id="pulse" class="pulse" title="Live">●</span>
+        <span class="who" title="Signed in">{{ admin }}</span>
+        <button class="btn ghost" id="refresh">Refresh</button>
+        <button class="btn ghost" id="logout">Log out</button>
+      </div>
+    </header>
+
+    <main class="stage">
+      <!-- OVERVIEW -->
+      <section class="panel active" data-view="overview">
+        <div class="tiles">
+          <div class="tile"><span class="k">Signals / 24h</span><strong id="s_total">0</strong><span class="s" id="s_total_s">all activity</span></div>
+          <div class="tile warn"><span class="k">Failed logins</span><strong id="s_fails">0</strong><span class="s">hostile attempts</span></div>
+          <div class="tile bad"><span class="k">Active blocks</span><strong id="s_blocks">0</strong><span class="s">IPs shut out</span></div>
+          <div class="tile bad"><span class="k">Locked accounts</span><strong id="s_locks">0</strong><span class="s">cooling down</span></div>
+          <div class="tile ok"><span class="k">Successful logins</span><strong id="s_wins">0</strong><span class="s">last 24h</span></div>
+          <div class="tile"><span class="k">Distinct IPs</span><strong id="s_ips">0</strong><span class="s">seen in 24h</span></div>
+        </div>
+
+        <div class="split">
+          <div class="card">
+            <div class="cardhead"><h3>Pressure — last hour</h3><span class="muted small">hostile signals / 5 min</span></div>
+            <div class="spark" id="spark"></div>
+          </div>
+          <div class="card">
+            <div class="cardhead"><h3>Top offenders — 24h</h3></div>
+            <div class="rows" id="offenders"><div class="empty">No hostile traffic yet.</div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- LIVE FEED -->
+      <section class="panel" data-view="feed">
+        <div class="card">
+          <div class="cardhead">
+            <h3>Event stream</h3>
+            <div class="rowbtns">
+              <button class="btn ghost" id="export">Export CSV</button>
+              <button class="btn danger" id="clear">Clear history</button>
+            </div>
+          </div>
+          <div class="feed" id="feed"><div class="empty">Waiting for signals…</div></div>
+        </div>
+      </section>
+
+      <!-- ATTACK MAP -->
+      <section class="panel" data-view="map">
+        <div class="card">
+          <div class="cardhead">
+            <h3>Attack origins — last 24h</h3>
+            <span class="chip" id="mapcount">0 located</span>
+          </div>
+          <div id="map" class="attackmap"><div class="mapnote" id="mapnote">Loading…</div></div>
+          <p class="muted small">
+            Pin number = attempts from that IP · red = currently blocked. Location is approximate
+            (an IP points to a network/region, not a person). Private/local IPs can't be mapped.
+          </p>
+        </div>
+      </section>
+
+      <!-- BLOCKS -->
+      <section class="panel" data-view="blocks">
+        <div class="card">
+          <div class="cardhead"><h3>Add a manual block</h3></div>
+          <form id="blockform" class="inline">
+            <input name="ip" placeholder="IP address" required>
+            <input name="minutes" type="number" value="60" min="0" title="0 = permanent">
+            <input name="reason" placeholder="Reason (optional)">
+            <button class="btn primary" type="submit">Block</button>
+          </form>
+          <p class="muted small">Minutes = how long. <strong>0 means permanent.</strong></p>
+        </div>
+        <div class="card">
+          <div class="cardhead"><h3>Active blocks</h3><span class="chip" id="blockcount">0</span></div>
+          <div class="rows" id="blocks"><div class="empty">No IPs are blocked.</div></div>
+        </div>
+      </section>
+
+      <!-- LOCKS -->
+      <section class="panel" data-view="locks">
+        <div class="card">
+          <div class="cardhead"><h3>Locked accounts</h3><span class="chip" id="lockcount">0</span></div>
+          <div class="rows" id="locks"><div class="empty">No accounts are locked.</div></div>
+        </div>
+      </section>
+
+      <!-- TRUSTED -->
+      <section class="panel" data-view="trusted">
+        <div class="card">
+          <div class="cardhead"><h3>Add a trusted range</h3></div>
+          <form id="trustform" class="inline">
+            <input name="cidr" placeholder="IP or CIDR, e.g. 203.0.113.0/24" required>
+            <input name="label" placeholder="Label (optional)">
+            <button class="btn primary" type="submit">Trust</button>
+          </form>
+          <p class="muted small">Trusted ranges are never blocked and never build heat.</p>
+        </div>
+        <div class="card">
+          <div class="cardhead"><h3>Trusted ranges</h3><span class="chip" id="trustcount">0</span></div>
+          <div class="rows" id="trusted"><div class="empty">Nothing trusted yet.</div></div>
+        </div>
+      </section>
+
+      <!-- POLICY -->
+      <section class="panel" data-view="policy">
+        <div class="card">
+          <div class="cardhead"><h3>Active policy</h3><span class="muted small">set via environment variables</span></div>
+          <div class="policy" id="policy"></div>
+        </div>
+        <div class="card">
+          <div class="cardhead"><h3>Wire up your login system</h3></div>
+          <p class="muted small">After each login attempt, POST to the signal endpoint. Never send passwords.</p>
+          <pre class="code" id="snippet"></pre>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="{{ url_for('static', filename='sentinel.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+Flask>=3.0,<4.0
+# Only needed when Sentinel stores data in TiDB/MySQL (TIDB_HOST set).
+PyMySQL>=1.1,<2.0
+# Enables the attack map + IP geolocation (reads a local .mmdb database).
+# Optional: without it, Sentinel runs fine and the map simply stays empty.
+maxminddb>=2.6,<4.0
