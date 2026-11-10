@@ -61,6 +61,56 @@ def normalize_kind(raw):
     return kind if kind in KNOWN_KINDS else "suspicious"
 
 
+# Known attack tools / scripts, matched inside the user-agent (ported from rbx defender).
+TOOLS = (
+    ("hydra", "Hydra (attack tool)"), ("medusa", "Medusa (attack tool)"), ("ncrack", "Ncrack (attack tool)"),
+    ("patator", "Patator (attack tool)"), ("wfuzz", "Wfuzz (fuzzer)"), ("ffuf", "ffuf (fuzzer)"),
+    ("sqlmap", "sqlmap (attack tool)"), ("nikto", "Nikto (scanner)"), ("nmap", "Nmap (scanner)"),
+    ("burp", "Burp Suite"), ("zgrab", "ZGrab (scanner)"), ("masscan", "Masscan (scanner)"),
+    ("curl", "curl"), ("wget", "wget"), ("python-requests", "Python script"),
+    ("python-urllib", "Python script"), ("aiohttp", "Python script"), ("httpx", "Python script"),
+    ("go-http-client", "Go program"), ("okhttp", "Java/Android HTTP library"), ("java/", "Java program"),
+    ("postman", "Postman"), ("insomnia", "Insomnia"), ("headless", "Headless browser"),
+    ("selenium", "Selenium bot"), ("puppeteer", "Puppeteer bot"), ("playwright", "Playwright bot"),
+    ("bot", "Bot"), ("spider", "Crawler"), ("crawler", "Crawler"),
+)
+
+
+def describe_ua(ua):
+    """Turn a user-agent into {tool, os, browser, type}. tool is set when it's an automated client."""
+    out = {"tool": "", "os": "", "browser": "", "type": ""}
+    if not ua or ua in ("-", "—", "unknown"):
+        return out
+    low = ua.lower()
+    for key, name in TOOLS:
+        if key in low:
+            out.update(tool=name, type="automated")
+            return out
+    for key, name in (("windows nt 10", "Windows 10/11"), ("windows nt", "Windows"), ("android", "Android"),
+                      ("iphone", "iOS"), ("ipad", "iPadOS"), ("mac os x", "macOS"), ("cros", "ChromeOS"),
+                      ("linux", "Linux")):
+        if key in low:
+            out["os"] = name
+            break
+    m = re.search(r"Android ([\d.]+)", ua)
+    if m and out["os"] == "Android":
+        out["os"] = "Android " + m.group(1).split(".")[0]
+    for pattern, name in ((r"Edg(?:A|iOS)?/(\d+)", "Edge"), (r"OPR/(\d+)", "Opera"),
+                          (r"SamsungBrowser/(\d+)", "Samsung Internet"), (r"(?:Firefox|FxiOS)/(\d+)", "Firefox"),
+                          (r"(?:Chrome|CriOS)/(\d+)", "Chrome"), (r"Version/(\d+)[\d.]*.*Safari", "Safari")):
+        m = re.search(pattern, ua)
+        if m:
+            out["browser"] = f"{name} {m.group(1)}"
+            break
+    if "ipad" in low or "tablet" in low:
+        out["type"] = "tablet"
+    elif "mobi" in low or "iphone" in low:
+        out["type"] = "phone"
+    elif out["os"] or out["browser"]:
+        out["type"] = "computer"
+    return out
+
+
 def _iso(ts):
     return datetime.fromtimestamp(ts, timezone.utc).isoformat(timespec="seconds")
 

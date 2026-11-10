@@ -81,13 +81,23 @@ function renderSpark(buckets) {
     .join("");
 }
 
+function ipLink(ip) {
+  if (!ip || ip === "-") return '<span class="ip">—</span>';
+  return `<button class="iplink" data-ip="${esc(ip)}" title="Show everything about this IP">${esc(ip)}</button>`;
+}
+
+function placeOf(o) {
+  return locLabel(o) ? `<span class="loc">📍 ${esc(locLabel(o))}</span>` : "";
+}
+
 function renderOffenders(list) {
   const el = $("offenders");
   if (!list.length) { el.innerHTML = '<div class="empty">No hostile traffic yet.</div>'; return; }
   el.innerHTML = list.map((o) => `
     <div class="row">
       <div class="ipline">
-        <span class="ip">${esc(o.ip)}</span>
+        ${ipLink(o.ip)}
+        ${placeOf(o)}
         ${o.blocked ? '<span class="pill blocked">blocked</span>' : ""}
       </div>
       <div class="right">
@@ -129,7 +139,7 @@ function renderFeed(events) {
     return `
       <div class="ev">
         <span class="t">${fmtWhen(e.iso)}</span>
-        <span class="ip">${esc(e.ip)}</span>
+        <span class="ip">${ipLink(e.ip)}</span>
         <span class="detail">${detail}</span>
         <span class="kind ${esc(e.kind)}">${esc(label)}</span>
       </div>`;
@@ -170,7 +180,8 @@ function renderMap(points, geoInfo) {
     const where = (p.city && p.city !== "—" ? p.city + ", " : "") + (p.country || "Unknown");
     L.marker([p.lat, p.lon], { icon, title: p.ip }).bindPopup(
       `<span class="pip">${esc(p.ip)}</span><br>${esc(where)}<br>${p.hits} attempt(s)` +
-      (p.blocked ? ' · <b style="color:#f06a6a">blocked</b>' : "")
+      (p.blocked ? ' · <b style="color:#f06a6a">blocked</b>' : "") +
+      `<br><button class="btn" style="margin-top:8px;padding:6px 10px" data-ip="${esc(p.ip)}">Full details</button>`
     ).addTo(markerLayer);
   });
   if (!mapFitted) {
@@ -187,11 +198,14 @@ function renderBlocks(list, now) {
     return `
     <div class="row">
       <div class="ipline">
-        <span class="ip">${esc(b.ip)}</span>
+        ${ipLink(b.ip)}
+        ${placeOf(b)}
         <span class="meta">${esc(b.reason || "")}</span>
       </div>
       <div class="right">
+        ${b.hits ? `<span class="pill hot">${b.hits} hits</span>` : ""}
         <span class="pill ${b.manual ? "" : "hot"}">${b.manual ? "manual" : "auto"} · strike ${b.strikes}</span>
+        <button class="x" data-ip="${esc(b.ip)}">details</button>
         <span class="meta">${fmtLeft(left)}</span>
         <button class="x" data-unblock="${esc(b.ip)}">unblock</button>
       </div>
@@ -256,6 +270,164 @@ curl -X POST "$SENTINEL_URL/api/v1/gate" \\
 # -> {"allowed": false, "verdict": "ip_blocked", "retry_after": 840}`;
 }
 
+/* ---------- Attacker details window ---------- */
+
+let modalIp = null;
+
+function fmtFull(iso) { try { return new Date(iso).toLocaleString(); } catch { return iso || "—"; } }
+function ago(iso) {
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (!isFinite(s)) return "";
+  if (s < 60) return Math.max(0, Math.round(s)) + "s ago";
+  if (s < 3600) return Math.round(s / 60) + " min ago";
+  if (s < 86400) return Math.round(s / 3600) + " h ago";
+  return Math.round(s / 86400) + " d ago";
+}
+function parseClient(c) { if (c && typeof c === "object") return c; try { return c ? JSON.parse(c) : {}; } catch { return {}; } }
+function tzOffset(tz) {
+  try {
+    const s = new Date().toLocaleString("en-US", { timeZone: tz, timeZoneName: "shortOffset" }).split("GMT")[1] || "0";
+    const [h, m] = s.split(":"); const hh = Number(h || 0);
+    return hh + Math.sign(hh || 1) * Number(m || 0) / 60;
+  } catch { return null; }
+}
+function localTime(tz) { try { return new Date().toLocaleTimeString([], { timeZone: tz, hour: "2-digit", minute: "2-digit" }); } catch { return ""; } }
+const NETWORK = {
+  hosting: '<span class="t-amber">Data centre / VPN / cloud — often a bot or a hidden location</span>',
+  isp: "Internet provider (home or mobile)",
+};
+const dl = (pairs) => pairs.filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("") ||
+  '<dt></dt><dd class="muted">Nothing recorded</dd>';
+
+function ipCard(i) {
+  const status = i.blocked ? '<span class="status blocked">BLOCKED</span>'
+    : i.trusted ? '<span class="status trusted">TRUSTED</span>' : '<span class="status watch">WATCHING</span>';
+  const place = [i.city, i.region, i.country].filter(Boolean).filter((v, ix, a) => a.indexOf(v) === ix).join(", ");
+  const riskColor = i.risk >= 70 ? "var(--red)" : i.risk >= 40 ? "var(--amber)" : "var(--green)";
+  const riskWord = i.risk >= 70 ? "High" : i.risk >= 40 ? "Medium" : "Low";
+  const c = parseClient((i.devices.find((d) => d.client) || {}).client);
+
+  let tzRow = "";
+  if (c.tz) {
+    const off = tzOffset(c.tz);
+    const odd = i.timezone && i.timezone !== c.tz && tzOffset(i.timezone) !== off;
+    tzRow = `${esc(c.tz)} <span class="muted">UTC${off >= 0 ? "+" : ""}${off}</span>` +
+      (odd ? ' <span class="t-amber">· differs from the IP location — possible VPN / proxy</span>' : "");
+  }
+
+  const location = dl([
+    ["Location", i.scope === "private" ? "Private / local network (no location)"
+      : place ? esc(place) + (i.country_code ? `<span class="cc">${esc(i.country_code)}</span>` : "")
+      : '<span class="muted">Not in the location database</span>'],
+    ["Continent", esc(i.continent || "")],
+    ["Postal code", esc(i.postal || "")],
+    ["Coordinates", i.lat != null ? `${Number(i.lat).toFixed(4)}, ${Number(i.lon).toFixed(4)}` +
+      (i.accuracy_km ? ` <span class="muted">± ${i.accuracy_km} km</span>` : "") : ""],
+    ["IP time zone", i.timezone ? `${esc(i.timezone)} <span class="muted">local time ${esc(localTime(i.timezone))}</span>` : ""],
+  ]);
+  const network = dl([
+    ["Provider", esc(i.org || "")],
+    ["ASN", i.asn ? "AS" + esc(i.asn) : ""],
+    ["Network type", NETWORK[i.network] || ""],
+    ["IP version", i.version ? "IPv" + i.version : ""],
+  ]);
+  const activity = dl([
+    ["First seen", i.first ? esc(fmtFull(i.first)) : ""],
+    ["Last seen", i.last ? `${esc(fmtFull(i.last))} <span class="muted">${ago(i.last)}</span>` : ""],
+    ["Speed", i.rate_per_min != null ? `${i.rate_per_min} hostile attempts / min` : ""],
+    ["Pages hit", i.routes.map(([r, n]) => `<code>${esc(r)} ×${n}</code>`).join("")],
+    ["Locked accounts", i.locked_accounts.map((u) => `<code>${esc(u)}</code>`).join("")],
+    ["Block", i.block ? (i.blocked
+      ? (i.block.expires == null ? '<span class="t-red">permanent</span>' : `<span class="t-red">ends in ${fmtLeft(i.block.retry)}</span>`)
+      : '<span class="muted">expired / lifted</span>') +
+      ` · strike ${i.block.strikes} · ${i.block.manual ? "manual" : "auto"}` +
+      (i.block.reason ? `<br><span class="muted">${esc(i.block.reason)}</span>` : "") : ""],
+  ]);
+  const device = dl([
+    ["Device time zone", tzRow],
+    ["Language", esc(c.language || "")],
+    ["Screen", esc(c.screen || "")],
+    ["Platform", esc(c.platform || "")],
+    ["Browser", esc(c.browser || "")],
+    ["Mobile", esc(c.mobile || "")],
+  ]);
+  const devices = i.devices.map((d) => {
+    const label = d.tool ? `<b>${esc(d.tool)}</b> <span class="t-amber">automated</span>`
+      : ([d.browser, d.os].filter(Boolean).map(esc).join(" · ") || "Unknown client") +
+        (d.type ? ` <span class="muted">${esc(d.type)}</span>` : "");
+    return `<div class="dev">${label} <span class="muted">×${d.count}</span>
+      <div class="muted" style="font-family:var(--mono);font-size:10.5px;overflow-wrap:anywhere">${esc(d.ua)}</div></div>`;
+  }).join("") || '<div class="muted small">No user-agent recorded.</div>';
+  const users = i.usernames.length ? i.usernames.map(([u, n]) => `<code>${esc(u)} ×${n}</code>`).join("")
+    : '<span class="muted small">None</span>';
+  const events = i.events.length ? `<table class="mini"><tbody>${i.events.map((e) => `<tr>
+      <td class="mono">${esc(fmtFull(e.iso))}</td>
+      <td><span class="kind ${esc(e.kind)}">${esc(KIND_LABEL[e.kind] || e.kind)}</span></td>
+      <td>${esc(e.account || "—")}</td>
+      <td class="muted">${esc(e.note || e.route || "")}</td></tr>`).join("")}</tbody></table>`
+    : '<div class="muted small">No events.</div>';
+
+  const enc = encodeURIComponent(i.ip);
+  const external = i.scope === "public" ? `
+    <a class="btn ghost" href="https://www.abuseipdb.com/check/${enc}" target="_blank" rel="noopener">AbuseIPDB ↗</a>
+    <a class="btn ghost" href="https://ipinfo.io/${enc}" target="_blank" rel="noopener">ipinfo ↗</a>
+    <a class="btn ghost" href="https://www.whois.com/whois/${enc}" target="_blank" rel="noopener">WHOIS ↗</a>
+    ${i.lat != null ? `<a class="btn ghost" href="https://www.google.com/maps?q=${i.lat},${i.lon}" target="_blank" rel="noopener">Google Maps ↗</a>` : ""}` : "";
+  const actions = i.blocked
+    ? `<button class="btn danger" data-unblock="${esc(i.ip)}">Unblock</button>`
+    : i.trusted
+      ? `<button class="btn" data-untrust="${esc(i.ip)}">Remove from trusted</button>`
+      : `<input id="mdmin" type="number" min="0" value="60" title="Minutes — 0 = permanent">
+         <input id="mdreason" class="reason" placeholder="Reason (optional)">
+         <button class="btn primary" data-ipblock="${esc(i.ip)}">Block IP</button>
+         <button class="btn" data-iptrust="${esc(i.ip)}">Trust</button>`;
+
+  return `
+    <div class="ip-head">
+      <div><b id="ipmodaltitle">${esc(i.ip)}</b>
+        <div class="sub">${place ? "📍 " + esc(place) : i.scope === "private" ? "Private / local network" : "Location unknown"}${i.org ? " · " + esc(i.org) : ""}</div></div>
+      ${status}
+    </div>
+    <div class="risk"><span class="muted small">Threat level</span>
+      <div class="meter"><span style="width:${i.risk}%;background:${riskColor}"></span></div>
+      <b style="color:${riskColor}">${riskWord} · ${i.risk}</b></div>
+    <div class="kpis">
+      <div><span>Attempts</span><strong>${i.attempts}</strong></div>
+      <div><span>Failed</span><strong class="t-red">${i.fails}</strong></div>
+      <div><span>Tried while blocked</span><strong class="t-amber">${i.blocked_tries}</strong></div>
+      <div><span>Successful</span><strong class="t-green">${i.successes}</strong></div>
+    </div>
+    <div class="ipgrid">
+      <div class="ipsec"><h4>Location</h4><dl>${location}</dl></div>
+      <div class="ipsec"><h4>Network</h4><dl>${network}</dl></div>
+      <div class="ipsec"><h4>Activity</h4><dl>${activity}</dl></div>
+      <div class="ipsec"><h4>Device fingerprint</h4><dl>${device}</dl></div>
+      <div class="ipsec full"><h4>Usernames tried</h4>${users}</div>
+      <div class="ipsec full"><h4>Devices / tools (${i.devices.length})</h4>${devices}</div>
+      <div class="ipsec full"><h4>Latest events</h4>${events}</div>
+    </div>
+    <div class="ip-actions">${actions}${external}</div>
+    <div class="ipnote">Location and provider are approximate: an IP points to an internet provider's area, not a person
+      or street address. VPNs, proxies and mobile networks can mislead attribution.</div>`;
+}
+
+async function loadIp() {
+  if (!modalIp) return;
+  try { $("ipmodalbody").innerHTML = ipCard(await api("ip/" + encodeURIComponent(modalIp))); }
+  catch (e) { $("ipmodalbody").innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+function openIp(ip) {
+  modalIp = ip;
+  $("ipmodal").hidden = false;
+  $("ipmodalbody").innerHTML = '<div class="empty">Loading attacker profile…</div>';
+  loadIp();
+}
+function closeIp() { modalIp = null; $("ipmodal").hidden = true; }
+
+$("ipmodalclose").addEventListener("click", closeIp);
+$("ipmodal").addEventListener("click", (e) => { if (e.target.id === "ipmodal") closeIp(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && modalIp) closeIp(); });
+
 /* ---------- Refresh loop ---------- */
 
 async function refresh() {
@@ -298,13 +470,35 @@ $("tabs").addEventListener("click", (e) => {
 
 /* Delegated actions */
 document.addEventListener("click", async (e) => {
+  const open = e.target.closest("[data-ip]");
   const unblock = e.target.closest("[data-unblock]");
   const unlock = e.target.closest("[data-unlock]");
   const untrust = e.target.closest("[data-untrust]");
+  const ipblock = e.target.closest("[data-ipblock]");
+  const iptrust = e.target.closest("[data-iptrust]");
   try {
-    if (unblock) { await api("blocks/" + encodeURIComponent(unblock.dataset.unblock), { method: "DELETE" }); toast("Block lifted"); refresh(); }
-    else if (unlock) { await api("locks/" + encodeURIComponent(unlock.dataset.unlock), { method: "DELETE" }); toast("Account released"); refresh(); }
-    else if (untrust) { await api("trusted?cidr=" + encodeURIComponent(untrust.dataset.untrust), { method: "DELETE" }); toast("Removed"); refresh(); }
+    if (open) { openIp(open.dataset.ip); return; }
+    if (unblock) { await api("blocks/" + encodeURIComponent(unblock.dataset.unblock), { method: "DELETE" }); toast("Block lifted"); }
+    else if (unlock) { await api("locks/" + encodeURIComponent(unlock.dataset.unlock), { method: "DELETE" }); toast("Account released"); }
+    else if (untrust) {
+      const v = untrust.dataset.untrust;
+      await api("trusted?cidr=" + encodeURIComponent(v.includes("/") ? v : v + (v.includes(":") ? "/128" : "/32")), { method: "DELETE" });
+      toast("Removed from trusted");
+    }
+    else if (ipblock) {
+      await api("blocks", { method: "POST", body: JSON.stringify({
+        ip: ipblock.dataset.ipblock,
+        minutes: Number(($("mdmin") || {}).value || 60),
+        reason: (($("mdreason") || {}).value || "").trim() || "Blocked from attacker details" }) });
+      toast("IP blocked");
+    }
+    else if (iptrust) {
+      await api("trusted", { method: "POST", body: JSON.stringify({ cidr: iptrust.dataset.iptrust, label: "Trusted from attacker details" }) });
+      toast("IP trusted");
+    }
+    else return;
+    refresh();
+    loadIp();
   } catch (err) { toast(err.message, true); }
 });
 

@@ -147,6 +147,14 @@
     </main>
   </div>
 
+  <!-- Attacker details window (opened by clicking any IP) -->
+  <div id="ipmodal" class="modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="ipmodaltitle">
+      <button class="modal-x" id="ipmodalclose" aria-label="Close">×</button>
+      <div id="ipmodalbody"><div class="empty">Loading…</div></div>
+    </div>
+  </div>
+
   <div id="toast" class="toast"></div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script src="{{ url_for('static', filename='sentinel.js') }}"></script>

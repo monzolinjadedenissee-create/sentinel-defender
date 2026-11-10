@@ -140,8 +140,13 @@ def build_blueprint(cfg, store):
             buckets[idx] += 1
 
         blocked_ips = {b["ip"] for b in blocks}
+        hits_by_ip = {o["ip"]: o["hits"] for o in offenders}
         for o in offenders:
             o["blocked"] = o["ip"] in blocked_ips
+            o["country"], o["city"] = geo.locate(o["ip"])[:2]
+        for b in blocks:
+            b["country"], b["city"] = geo.locate(b["ip"])[:2]
+            b["hits"] = hits_by_ip.get(b["ip"])
 
         # Map points: one pin per located IP, flagged if currently blocked.
         points = []
@@ -256,5 +261,76 @@ def build_blueprint(cfg, store):
         with store.session() as s:
             removed = s.write("DELETE FROM sn_trusted WHERE cidr=?", (request.args.get("cidr", ""),))
         return (jsonify({"ok": True}), 200) if removed else (jsonify({"ok": False}), 404)
+
+    # ---- Attacker profile: everything we know about one IP ---------------------
+    @bp.get("/api/v1/ip/<path:ip>")
+    @require_login
+    def ip_profile(ip):
+        addr = valid_ip(ip)
+        if not addr:
+            return jsonify({"error": "Invalid ip"}), 400
+        now = time.time()
+        with store.session() as s:
+            evs = s.rows(
+                "SELECT id, iso, ts, kind, route, method, ua, account, note, client "
+                "FROM sn_events WHERE ip=? ORDER BY ts DESC LIMIT 1000", (addr,))
+            block = s.row("SELECT * FROM sn_blocks WHERE ip=?", (addr,))
+            trusted = engine.is_trusted(s, addr)
+            usernames, devices, routes = {}, {}, {}
+            counts = {"attempts": 0, "fails": 0, "successes": 0, "blocked_tries": 0}
+            for e in evs:
+                if e["kind"] == "ip_blocked":
+                    continue
+                counts["attempts"] += 1
+                if e["kind"] in engine.HOSTILE:
+                    counts["fails"] += 1
+                elif e["kind"] == "success":
+                    counts["successes"] += 1
+                elif e["kind"] == "blocked_attempt":
+                    counts["blocked_tries"] += 1
+                if e["account"]:
+                    usernames[e["account"]] = usernames.get(e["account"], 0) + 1
+                if e["route"] and e["route"] != "-":
+                    routes[e["route"]] = routes.get(e["route"], 0) + 1
+                ua = e["ua"] or "-"
+                d = devices.setdefault(ua, {"ua": ua, "count": 0, "client": "", "last": e["iso"]})
+                d["count"] += 1
+                if not d["client"] and e["client"]:
+                    d["client"] = e["client"]
+            locked = [u for u in usernames if engine.active_lock(s, u)]
+
+        info = geo.details(addr)
+        active = bool(block) and (block["expires"] is None or block["expires"] > now)
+        hostile = [e for e in evs if e["kind"] in engine.HOSTILE]
+        rate = None
+        if len(hostile) >= 2:
+            span = max(1.0, hostile[0]["ts"] - hostile[-1]["ts"])
+            rate = round(len(hostile) / (span / 60), 1)        # attempts per minute
+
+        # Simple risk score so the admin can triage at a glance.
+        score = min(40, counts["fails"] * 4) + (25 if active else 0) + (15 if info.get("network") == "hosting" else 0)
+        score += 15 if any(engine.describe_ua(d["ua"])["tool"] for d in devices.values()) else 0
+        score += 5 if len(usernames) >= 3 else 0
+        score = min(100, score)
+
+        return jsonify({
+            **info, "ip": addr, **counts,
+            "first": evs[-1]["iso"] if evs else None, "last": evs[0]["iso"] if evs else None,
+            "rate_per_min": rate,
+            "usernames": sorted(usernames.items(), key=lambda kv: -kv[1])[:12],
+            "routes": sorted(routes.items(), key=lambda kv: -kv[1])[:6],
+            "devices": [dict(d, **engine.describe_ua(d["ua"])) for d in
+                        sorted(devices.values(), key=lambda d: -d["count"])[:8]],
+            "locked_accounts": locked,
+            "trusted": trusted,
+            "blocked": active,
+            "block": ({"reason": block["reason"], "strikes": block["strikes"], "manual": bool(block["manual"]),
+                       "created": block["created"], "expires": block["expires"],
+                       "retry": None if block["expires"] is None else int(block["expires"] - now)}
+                      if block else None),
+            "risk": score,
+            "events": [{k: e[k] for k in ("iso", "kind", "route", "account", "note")} for e in evs[:25]],
+            "now": now,
+        })
 
     return bp
